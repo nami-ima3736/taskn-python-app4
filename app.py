@@ -70,6 +70,64 @@ def format_date(date_val):
     return str(date_val)
 
 
+def parse_threshold_value(value, default=None):
+    """設定期限の値を整数に変換（無効値はデフォルトにフォールバック）"""
+    if pd.isna(value):
+        return default
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        try:
+            return int(float(value))
+        except (ValueError, TypeError):
+            return default
+
+
+def resolve_thresholds(setting1=None, setting2=None, setting3=None):
+    """設定期限に基づきレベル別の残日数上限を算出"""
+    defaults = (90, 60, 30)
+    sanitized_values = []
+    for value, default in zip((setting1, setting2, setting3), defaults):
+        if value is None:
+            sanitized_values.append(default)
+        else:
+            try:
+                sanitized_values.append(max(int(value), 0))
+            except (ValueError, TypeError):
+                try:
+                    sanitized_values.append(max(int(float(value)), 0))
+                except (ValueError, TypeError):
+                    sanitized_values.append(default)
+
+    # level1/level2/level3 should directly reflect 設定期限1-3 respectively
+    return {
+        'level1_max': sanitized_values[0],
+        'level2_max': sanitized_values[1],
+        'level3_max': sanitized_values[2],
+    }
+
+
+def determine_deadline_level(days_to_expiration, thresholds):
+    """残日数に応じた期限レベルを判定"""
+    if days_to_expiration is None or days_to_expiration < 0:
+        return None
+
+    level_thresholds = []
+    for level in ('level1', 'level2', 'level3'):
+        max_val = thresholds.get(f'{level}_max')
+        if max_val is None:
+            continue
+        level_thresholds.append((max_val, level))
+
+    level_thresholds.sort(key=lambda item: item[0])
+
+    for max_val, level in level_thresholds:
+        if days_to_expiration <= max_val:
+            return level
+
+    return None
+
+
 def load_default_file(filepath):
     """デフォルトファイルを読み込み"""
     global current_manager, current_file, last_export_info
@@ -141,6 +199,12 @@ def get_data():
         deadline1_status = get_deadline_status(row.get('期限日1'))
         deadline2_status = get_deadline_status(row.get('期限日2'))
         deadline3_status = get_deadline_status(row.get('期限日3'))
+
+        setting1_val = parse_threshold_value(row.get('設定期限1'))
+        setting2_val = parse_threshold_value(row.get('設定期限2'))
+        setting3_val = parse_threshold_value(row.get('設定期限3'))
+        thresholds = resolve_thresholds(setting1_val, setting2_val, setting3_val)
+        deadline_level = determine_deadline_level(days_to_expiration, thresholds)
         
         data_item = {
             'index': int(idx),
@@ -164,6 +228,13 @@ def get_data():
             '期限日3': format_date(row.get('期限日3')),
             '期限日3_状態': deadline3_status,
             '状態': expiration_status,
+            '設定期限1': setting1_val,
+            '設定期限2': setting2_val,
+            '設定期限3': setting3_val,
+            '期限レベル1_上限': thresholds['level1_max'],
+            '期限レベル2_上限': thresholds['level2_max'],
+            '期限レベル3_上限': thresholds['level3_max'],
+            '期限レベル分類': deadline_level,
         }
         data_list.append(data_item)
     
@@ -207,21 +278,30 @@ def get_summary():
     for idx, row in df.iterrows():
         # 満了年月日までの残り日数を計算
         expiration_date = row.get('満了年月日')
+        days_to_expiration = None
         if not pd.isna(expiration_date):
             if isinstance(expiration_date, (datetime, pd.Timestamp)):
                 exp_date = expiration_date.date()
             else:
                 exp_date = pd.to_datetime(expiration_date).date()
             days_to_expiration = (exp_date - today).days
-            
+        
+        if days_to_expiration is not None:
             if days_to_expiration < 0:
                 expired_count += 1
-            elif 0 <= days_to_expiration <= 30:
-                days_30_count += 1
-            elif 31 <= days_to_expiration <= 60:
-                days_60_count += 1
-            elif 61 <= days_to_expiration <= 90:
-                days_90_count += 1
+            else:
+                setting1_val = parse_threshold_value(row.get('設定期限1'))
+                setting2_val = parse_threshold_value(row.get('設定期限2'))
+                setting3_val = parse_threshold_value(row.get('設定期限3'))
+                thresholds = resolve_thresholds(setting1_val, setting2_val, setting3_val)
+                level = determine_deadline_level(days_to_expiration, thresholds)
+
+                if level == 'level1':
+                    days_30_count += 1
+                elif level == 'level2':
+                    days_60_count += 1
+                elif level == 'level3':
+                    days_90_count += 1
         
         # 特定技能1号期限超過を計算
         manryo_days = row.get('満了日数')
@@ -612,6 +692,31 @@ def update_data(index):
         return jsonify({'error': f'更新エラー: {str(e)}'}), 400
 
 
+@app.route('/api/data/delete/<int:index>', methods=['DELETE'])
+def delete_data(index):
+    """データを削除"""
+    global current_manager, current_file, last_export_info
+
+    if current_manager is None or current_manager.df is None:
+        return jsonify({'error': 'データが読み込まれていません'}), 400
+
+    try:
+        if index < 0 or index >= len(current_manager.df):
+            return jsonify({'error': '無効なインデックスです'}), 400
+
+        # 行を削除
+        current_manager.df = current_manager.df.drop(index).reset_index(drop=True)
+
+        # 変更を元ファイルに保存
+        if current_file:
+            current_manager.save_processed_data(current_file)
+            last_export_info = {'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M'), 'download_name': os.path.basename(current_file)}
+
+        return jsonify({'success': True, 'message': 'データを削除しました'})
+    except Exception as e:
+        return jsonify({'error': f'削除エラー: {str(e)}'}), 400
+
+
 @app.route('/api/calendar')
 def get_calendar_data():
     """カレンダーデータを取得するAPI"""
@@ -659,12 +764,5 @@ if __name__ == '__main__':
     print("http://localhost:5000")
     print("\n終了するには Ctrl+C を押してください")
     print("=" * 80 + "\n")
-    
-    # デフォルトファイルを読み込み
-    default_file = "在留資格管理.xlsx"
-    if load_default_file(default_file):
-        print(f"デフォルトファイル読み込み成功: {default_file}")
-    else:
-        print(f"デフォルトファイル読み込み失敗: {default_file}")
     
     app.run(debug=True, host='localhost', port=5000)

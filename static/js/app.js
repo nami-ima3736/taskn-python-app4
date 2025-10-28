@@ -210,26 +210,23 @@ function filterData(filterType, event) {
         });
         updateStatus(`フィルター: 満了期限切れのみ (${filteredData.length}件)`);
     } else if (filterType === '30days') {
-        // 満了年月日まで0～30日
+        // レベル1（最も余裕が少ない分類）
         filteredData = allData.filter(row => {
-            const days = row['満了年月日までの日数'];
-            return days !== null && days >= 0 && days <= 30;
+            return row['期限レベル分類'] === 'level1';
         });
-        updateStatus(`フィルター: 0～30日 (${filteredData.length}件)`);
+        updateStatus(`フィルター: 期限レベル1 (${filteredData.length}件)`);
     } else if (filterType === '60days') {
-        // 満了年月日まで31～60日
+        // レベル2（中程度の余裕）
         filteredData = allData.filter(row => {
-            const days = row['満了年月日までの日数'];
-            return days !== null && days >= 31 && days <= 60;
+            return row['期限レベル分類'] === 'level2';
         });
-        updateStatus(`フィルター: 31～60日 (${filteredData.length}件)`);
+        updateStatus(`フィルター: 期限レベル2 (${filteredData.length}件)`);
     } else if (filterType === '90days') {
-        // 満了年月日まで61～90日
+        // レベル3（最も余裕がある分類）
         filteredData = allData.filter(row => {
-            const days = row['満了年月日までの日数'];
-            return days !== null && days >= 61 && days <= 90;
+            return row['期限レベル分類'] === 'level3';
         });
-        updateStatus(`フィルター: 61～90日 (${filteredData.length}件)`);
+        updateStatus(`フィルター: 期限レベル3 (${filteredData.length}件)`);
     } else if (filterType === 'skill1_limit') {
         // 特定技能1号期限超過（満了日数 + 184 > 1826）
         filteredData = allData.filter(row => {
@@ -551,6 +548,11 @@ async function deleteRow(index) {
     if (!confirm('このデータを削除しますか？')) {
         return;
     }
+
+    const finalConfirmMessage = '最終確認: この操作は元に戻せません。\n本当に削除しますか？';
+    if (!confirm(finalConfirmMessage)) {
+        return;
+    }
     
     try {
         updateStatus('データを削除中...');
@@ -650,4 +652,21 @@ function updateUnsavedIndicator() {
         exportButton.classList.remove('btn-unsaved');
         exportButton.removeAttribute('title');
     }
+}
+
+function getDeadlineLevelLimits(row) {
+    // レスポンスに期限レベル*_上限が含まれていれば優先
+    const level1 = toNumberOrNull(row['期限レベル1_上限']);
+    const level2 = toNumberOrNull(row['期限レベル2_上限']);
+    const level3 = toNumberOrNull(row['期限レベル3_上限']);
+
+    return { level1, level2, level3 };
+}
+
+function toNumberOrNull(value) {
+    if (value === undefined || value === null || value === '') {
+        return null;
+    }
+    const num = Number(value);
+    return Number.isFinite(num) ? Math.trunc(num) : null;
 }
