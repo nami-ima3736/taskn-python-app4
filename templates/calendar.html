@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>タスクン - カレンダー</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- ヘッダー -->
+        <header class="header">
+            <h1>📅 タスクン - カレンダー</h1>
+            <p class="subtitle">期限日1/2/3の視覚化</p>
+        </header>
+
+        <!-- ツールバー -->
+        <div class="toolbar">
+            <div class="toolbar-section">
+                <label for="fileInput" class="btn btn-primary">
+                    📂 ファイルを開く
+                    <input type="file" id="fileInput" accept=".xlsx" style="display: none;">
+                </label>
+                <button class="btn btn-secondary" onclick="refreshCalendar()">🔄 更新</button>
+            </div>
+            
+            <div class="toolbar-section">
+                <span class="toolbar-label">ナビゲーション:</span>
+                <button class="btn btn-nav" onclick="navigateYear(-1)">◀◀ 前の年</button>
+                <button class="btn btn-nav" onclick="navigateMonth(-1)">◀ 前の月</button>
+                <span id="currentMonthYear" class="month-year">2025年10月</span>
+                <button class="btn btn-nav" onclick="navigateMonth(1)">次の月 ▶</button>
+                <button class="btn btn-nav" onclick="navigateYear(1)">次の年 ▶▶</button>
+                <button class="btn btn-today" onclick="goToToday()">今日</button>
+            </div>
+            
+            <div class="toolbar-section">
+                <button class="btn btn-success" onclick="exportAlertList()">📊 アラートリスト出力</button>
+                <button class="btn btn-success" onclick="exportProcessedData()">💾 処理済みデータ保存</button>
+                <a href="/" class="btn btn-primary">📋 リストに戻る</a>
+            </div>
+        </div>
+
+        <!-- メインコンテンツ -->
+        <div class="main-content">
+            <!-- サイドバー（凡例） -->
+            <aside class="sidebar">
+                <div class="summary-panel">
+                    <h2>📊 凡例</h2>
+                    
+                    <div class="file-info">
+                        <h3>ファイル情報</h3>
+                        <p id="filename">ファイル: 未選択</p>
+                        <p id="totalCount" class="total-count">総件数: 0件</p>
+                    </div>
+                    
+                    <div class="legend">
+                        <h3>期限種別</h3>
+                        <div class="legend-item">
+                            <span class="legend-color bg-deadline1"></span>
+                            <span>期限日1</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-color bg-deadline2"></span>
+                            <span>期限日2</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-color bg-deadline3"></span>
+                            <span>期限日3</span>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- カレンダーグリッド -->
+            <main class="content">
+                <div class="calendar-container">
+                    <table class="calendar-grid">
+                        <thead>
+                            <tr>
+                                <th class="day-header">日</th>
+                                <th class="day-header">月</th>
+                                <th class="day-header">火</th>
+                                <th class="day-header">水</th>
+                                <th class="day-header">木</th>
+                                <th class="day-header">金</th>
+                                <th class="day-header">土</th>
+                            </tr>
+                        </thead>
+                        <tbody id="calendarBody">
+                            <!-- カレンダー行がここに生成される -->
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="status-bar" id="statusBar">
+                    準備完了
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/calendar.js') }}"></script>
+</body>
+</html>

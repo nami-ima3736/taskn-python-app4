@@ -22,6 +22,7 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 # グローバル変数でデータ管理
 current_manager = None
 current_file = None
+last_export_info = {'timestamp': None, 'download_name': None}
 
 
 def get_deadline_status(deadline_date):
@@ -71,12 +72,13 @@ def format_date(date_val):
 
 def load_default_file(filepath):
     """デフォルトファイルを読み込み"""
-    global current_manager, current_file
-    
+    global current_manager, current_file, last_export_info
+
     try:
         current_manager = ResidenceStatusManager(filepath)
         if current_manager.load_excel() and current_manager.process_data():
             current_file = filepath
+            last_export_info = {'timestamp': None, 'download_name': None}
             return True
     except:
         pass
@@ -175,7 +177,7 @@ def get_data():
 @app.route('/api/summary')
 def get_summary():
     """サマリー情報を取得するAPI"""
-    global current_manager, current_file
+    global current_manager, current_file, last_export_info
     
     if current_manager is None or current_manager.df is None:
         return jsonify({'error': 'データが読み込まれていません'}), 400
@@ -237,14 +239,17 @@ def get_summary():
         'days_90_count': days_90_count,
         'skill1_limit_count': skill1_limit_count,
     }
-    
+
+    summary['last_exported_at'] = last_export_info['timestamp'] if last_export_info else None
+    summary['last_export_filename'] = last_export_info['download_name'] if last_export_info else None
+
     return jsonify(summary)
 
 
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
     """ファイルをアップロード"""
-    global current_manager, current_file
+    global current_manager, current_file, last_export_info
     
     if 'file' not in request.files:
         return jsonify({'error': 'ファイルが選択されていません'}), 400
@@ -278,6 +283,7 @@ def upload_file():
                 return jsonify({'error': 'データの処理に失敗しました'}), 400
             
             current_file = filepath
+            last_export_info = {'timestamp': None, 'download_name': None}
             print(f"[DEBUG] ファイル読み込み成功: {len(current_manager.df)}件")
             return jsonify({'success': True, 'filename': filename})
         except Exception as e:
@@ -308,15 +314,29 @@ def export_alert_list():
 @app.route('/api/export/processed')
 def export_processed_data():
     """処理済みデータをエクスポート"""
-    global current_manager
-    
+    global current_manager, current_file, last_export_info
+
     if current_manager is None or current_manager.df is None:
         return jsonify({'error': 'データが読み込まれていません'}), 400
-    
-    output_path = os.path.join(app.config['UPLOAD_FOLDER'], '在留資格管理_processed.xlsx')
-    
+
+    base_name = '在留資格管理'
+    if current_file:
+        base_name = os.path.splitext(os.path.basename(current_file))[0] or base_name
+
+    if base_name.endswith('_processed'):
+        output_filename = f"{base_name}.xlsx"
+    else:
+        output_filename = f"{base_name}_processed.xlsx"
+
+    output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_filename)
+
     if current_manager.save_processed_data(output_path):
-        return send_file(output_path, as_attachment=True, download_name='在留資格管理_processed.xlsx')
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
+        last_export_info = {
+            'timestamp': timestamp,
+            'download_name': output_filename
+        }
+        return send_file(output_path, as_attachment=True, download_name=output_filename)
     else:
         return jsonify({'error': 'エクスポートに失敗しました'}), 400
 

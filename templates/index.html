@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>タスクン</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- ヘッダー -->
+        <header class="header">
+            <h1>📋 タスクン</h1>
+            <p class="subtitle">Web版 - セル単位での色分け表示対応</p>
+        </header>
+
+        <!-- ツールバー -->
+        <div class="toolbar">
+            <div class="toolbar-section">
+                <label for="fileInput" class="btn btn-primary">
+                    📂 ファイルを開く
+                    <input type="file" id="fileInput" accept=".xlsx" style="display: none;">
+                </label>
+                <button class="btn btn-secondary" onclick="refreshData()">🔄 更新</button>
+            </div>
+            
+            <div class="toolbar-section">
+                <span class="toolbar-label">フィルター:</span>
+                <button class="btn btn-filter" onclick="filterData('all', event)">すべて</button>
+                <button class="btn btn-filter" onclick="filterData('deadline_passed', event)">期限日超過</button>
+                <button class="btn btn-filter" onclick="filterData('expired', event)">期限切れ</button>
+                <button class="btn btn-filter" onclick="filterData('30days', event)">0～30日</button>
+                <button class="btn btn-filter" onclick="filterData('60days', event)">31～60日</button>
+                <button class="btn btn-filter" onclick="filterData('90days', event)">61～90日</button>
+                <button class="btn btn-filter" onclick="filterData('skill1_limit', event)">特定技能1号期限超過</button>
+            </div>
+            
+            <div class="toolbar-section">
+                <button class="btn btn-success" onclick="exportAlertList()">📊 アラートリスト出力</button>
+                <button id="processedExportButton" class="btn btn-success" onclick="exportProcessedData()">💾 処理済みデータ保存</button>
+                <button class="btn btn-primary" onclick="showAddModal()">➕ データ追加</button>
+                <a href="/calendar" class="btn btn-info">📅 カレンダー</a>
+            </div>
+        </div>
+
+        <!-- メインコンテンツ -->
+        <div class="main-content">
+            <!-- サイドバー（サマリー） -->
+            <aside class="sidebar">
+                <div class="summary-panel">
+                    <h2>📊 期限状況サマリー</h2>
+                    
+                    <div class="file-info">
+                        <h3>ファイル情報</h3>
+                        <p id="filename">ファイル: 未選択</p>
+                        <p id="totalCount" class="total-count">総件数: 0件</p>
+                        <p id="lastExportInfo" class="export-info">最終保存: 未保存</p>
+                        <p id="unsavedChangesIndicator" class="unsaved-indicator" style="display: none;">⚠ 未保存の変更があります</p>
+                    </div>
+                    
+                    <div class="status-info">
+                        <h3>期限状況</h3>
+                        
+                        <div class="status-card status-deadline-passed">
+                            <div class="status-icon">⚠️</div>
+                            <div class="status-text">
+                                <div class="status-label">期限日超過</div>
+                                <div class="status-count" id="deadlinePassedCount">0件</div>
+                            </div>
+                        </div>
+                        
+                        <div class="status-card status-expired">
+                            <div class="status-icon">✗</div>
+                            <div class="status-text">
+                                <div class="status-label">満了期限切れ</div>
+                                <div class="status-count" id="expiredCount">0件</div>
+                            </div>
+                        </div>
+                        
+                        <div class="status-card status-deadline1">
+                            <div class="status-icon">🟡</div>
+                            <div class="status-text">
+                                <div class="status-label">0～30日</div>
+                                <div class="status-count" id="days30Count">0件</div>
+                            </div>
+                        </div>
+                        
+                        <div class="status-card status-deadline2">
+                            <div class="status-icon">🟢</div>
+                            <div class="status-text">
+                                <div class="status-label">31～60日</div>
+                                <div class="status-count" id="days60Count">0件</div>
+                            </div>
+                        </div>
+                        
+                        <div class="status-card status-deadline3">
+                            <div class="status-icon">🟢</div>
+                            <div class="status-text">
+                                <div class="status-label">61～90日</div>
+                                <div class="status-count" id="days90Count">0件</div>
+                            </div>
+                        </div>
+                        
+                        <div class="status-card status-skill1">
+                            <div class="status-icon">🔴</div>
+                            <div class="status-text">
+                                <div class="status-label">特定技能1号期限超過</div>
+                                <div class="status-count" id="skill1LimitCount">0件</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="legend">
+                        <h3>凡例</h3>
+                        <div class="legend-item">
+                            <span class="legend-color bg-deadline-passed"></span>
+                            <span>期限日超過（期限日セル）</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-color bg-expired"></span>
+                            <span>満了期限切れ（行全体）</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-color bg-urgent"></span>
+                            <span>緊急（7日以内）</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-color bg-warning"></span>
+                            <span>警告（30日以内）</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-color bg-caution"></span>
+                            <span>注意（90日以内）</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-color bg-safe"></span>
+                            <span>安全（91日以上）</span>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- データテーブル -->
+            <main class="content">
+                <div class="search-bar">
+                    <label for="searchInput">🔍 検索:</label>
+                    <input type="text" id="searchInput" placeholder="氏名、担当者コード、在留資格で検索..." oninput="searchData()">
+                    <span id="searchResult" class="search-result"></span>
+                </div>
+                
+                <div class="table-container">
+                    <table id="dataTable" class="data-table">
+                        <thead>
+                            <tr>
+                                <th onclick="sortTable('担当者コード')">担当者コード</th>
+                                <th onclick="sortTable('氏名１')">氏名１</th>
+                                <th onclick="sortTable('氏名２')">氏名２</th>
+                                <th onclick="sortTable('在留資格')">在留資格</th>
+                                <th onclick="sortTable('国籍')">国籍</th>
+                                <th onclick="sortTable('在留カード番号')">在留カード番号</th>
+                                <th onclick="sortTable('生年月日')">生年月日</th>
+                                <th onclick="sortTable('期生')">期生</th>
+                                <th onclick="sortTable('許可年月日')">許可年月日</th>
+                                <th onclick="sortTable('満了年月日')">満了年月日</th>
+                                <th onclick="sortTable('満了日数')">満了日数</th>
+                                <th onclick="sortTable('期限日1')">期限日1</th>
+                                <th onclick="sortTable('期限日2')">期限日2</th>
+                                <th onclick="sortTable('期限日3')">期限日3</th>
+                                <th onclick="sortTable('状態')">状態</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody">
+                            <tr>
+                                <td colspan="16" class="no-data">データを読み込んでください</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="status-bar" id="statusBar">
+                    準備完了
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- データ編集モーダル -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2 id="modalTitle">データ追加</h2>
+            <form id="editForm" autocomplete="off">
+                <input type="hidden" id="editIndex" value="">
+                
+                <div class="form-group">
+                    <label for="edit担当者コード">担当者コード:</label>
+                    <input type="text" id="edit担当者コード" required autocomplete="off">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit氏名１">氏名１:</label>
+                    <input type="text" id="edit氏名１" required autocomplete="off">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit氏名２">氏名２:</label>
+                    <input type="text" id="edit氏名２" autocomplete="off">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit在留資格">在留資格:</label>
+                    <input type="text" id="edit在留資格" required autocomplete="off">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit国籍">国籍:</label>
+                    <input type="text" id="edit国籍" autocomplete="off">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit在留カード番号">在留カード番号:</label>
+                    <input type="text" id="edit在留カード番号" autocomplete="off">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit生年月日">生年月日:</label>
+                    <input type="date" id="edit生年月日" autocomplete="off">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit期生">期生:</label>
+                    <input type="number" id="edit期生" placeholder="数値を入力（例: 1, 2, 3）" step="1" min="1" inputmode="numeric" autocomplete="off">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit許可年月日">許可年月日:</label>
+                    <input type="date" id="edit許可年月日" required autocomplete="off">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit満了年月日">満了年月日:</label>
+                    <input type="date" id="edit満了年月日" required autocomplete="off">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit既満了日数">既満了日数 <span style="color: #888; font-size: 0.9em;">(特定技能1号のみ必須)</span>:</label>
+                    <input type="number" id="edit既満了日数" value="" placeholder="特定技能1号の場合は入力" autocomplete="off">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit設定期限1">設定期限1 (日):</label>
+                    <input type="number" id="edit設定期限1" value="90" autocomplete="off">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit設定期限2">設定期限2 (日):</label>
+                    <input type="number" id="edit設定期限2" value="60" autocomplete="off">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit設定期限3">設定期限3 (日):</label>
+                    <input type="number" id="edit設定期限3" value="30" autocomplete="off">
+                </div>
+                
+                <div class="form-buttons">
+                    <button type="submit" class="btn btn-primary">保存</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModal()">キャンセル</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
