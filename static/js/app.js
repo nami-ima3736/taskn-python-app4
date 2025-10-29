@@ -228,10 +228,10 @@ function filterData(filterType, event) {
         });
         updateStatus(`フィルター: 期限レベル3 (${filteredData.length}件)`);
     } else if (filterType === 'skill1_limit') {
-        // 特定技能1号期限超過（満了日数 + 184 > 1826）
+        // 特定技能1号期限超過（満了日数 + 184 > 1825）
         filteredData = allData.filter(row => {
             const days = row['満了日数_値'];
-            return days !== null && (days + 184) > 1826;
+            return days !== null && (days + 184) > 1825;
         });
         updateStatus(`フィルター: 特定技能1号期限超過 (${filteredData.length}件)`);
     }

@@ -305,7 +305,7 @@ def get_summary():
         
         # 特定技能1号期限超過を計算
         manryo_days = row.get('満了日数')
-        if not pd.isna(manryo_days) and (manryo_days + 184) > 1826:
+        if not pd.isna(manryo_days) and (manryo_days + 184) > 1825:
             skill1_limit_count += 1
     
     # 期限状況を計算
