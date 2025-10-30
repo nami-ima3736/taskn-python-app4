@@ -12,6 +12,9 @@ import os
 warnings.filterwarnings('ignore')
 
 
+DIGIT_TRANSLATION = str.maketrans('０１２３４５６７８９', '0123456789')
+
+
 class ResidenceStatusManager:
     """在留資格管理クラス"""
     
@@ -26,6 +29,7 @@ class ResidenceStatusManager:
         self.df = None
         self.workbook = None
         self.worksheet = None
+        self.last_error = None
         
     def load_excel(self):
         """Excelファイルを読み込む"""
@@ -35,6 +39,7 @@ class ResidenceStatusManager:
             # pandasでデータ読み込み（数式の計算結果を読み込む）
             print("[DEBUG] pandasでExcelを読み込み中...")
             self.df = pd.read_excel(self.excel_file_path)
+            self.last_error = None
             print(f"[DEBUG] pandas読み込み成功: {len(self.df)}行, {len(self.df.columns)}列")
             print(f"[DEBUG] 列名: {list(self.df.columns)}")
             
@@ -123,6 +128,7 @@ class ResidenceStatusManager:
             if self.df is None:
                 print("[ERROR] エラー: データが読み込まれていません")
                 return False
+            self.last_error = None
             
             print(f"[DEBUG] process_data開始: {len(self.df)}行")
             print(f"[DEBUG] 列名: {list(self.df.columns)}")
@@ -141,12 +147,57 @@ class ResidenceStatusManager:
             
             print(f"[DEBUG] 満了年月日列を検出: {expiration_col}")
             
+            # 指定列の数値を半角に正規化
+            def normalize_digits(value):
+                if pd.isna(value):
+                    return value
+                if isinstance(value, str):
+                    return value.translate(DIGIT_TRANSLATION)
+                return value
+
+            if '期生' in self.df.columns:
+                self.df['期生'] = self.df['期生'].apply(normalize_digits)
+            if '在留資格' in self.df.columns:
+                self.df['在留資格'] = self.df['在留資格'].apply(normalize_digits)
+            if '在留カード番号' in self.df.columns:
+                self.df['在留カード番号'] = self.df['在留カード番号'].apply(normalize_digits)
+            if '特技1号在留期限' in self.df.columns:
+                self.df['特技1号在留期限'] = self.df['特技1号在留期限'].apply(normalize_digits)
+
+            # 特技1号在留期限列の検証
+            if '特技1号在留期限' not in self.df.columns:
+                msg = "Excelに『特技1号在留期限』列(S列)が存在しません"
+                self.last_error = msg
+                print(f"[ERROR] {msg}")
+                return False
+
+            for idx, row in self.df.iterrows():
+                zairyu_shikaku = str(row.get('在留資格', '')).translate(DIGIT_TRANSLATION)
+                if '特定技能' in zairyu_shikaku and '1号' in zairyu_shikaku:
+                    limit_raw = row.get('特技1号在留期限')
+                    if pd.isna(limit_raw) or str(limit_raw).strip() == '':
+                        msg = f"特定技能1号の行で『特技1号在留期限』が未入力です (Excel行: {idx + 2})"
+                        self.last_error = msg
+                        print(f"[ERROR] {msg}")
+                        return False
+                    limit_str = str(limit_raw).strip()
+                    if isinstance(limit_raw, str):
+                        limit_str = limit_str.translate(DIGIT_TRANSLATION)
+                    try:
+                        numeric_limit = float(limit_str)
+                    except ValueError:
+                        msg = f"特定技能1号の行で『特技1号在留期限』に数値を入力してください (Excel行: {idx + 2})"
+                        self.last_error = msg
+                        print(f"[ERROR] {msg}")
+                        return False
+                    self.df.at[idx, '特技1号在留期限'] = numeric_limit
+
             # 満了日数を計算（特定技能1号の場合は既満了日数を考慮）
             print("[DEBUG] 満了日数列を計算中...")
             def calculate_manryo_days(row):
                 zairyu_shikaku = str(row.get('在留資格', ''))
                 # 全角数字を半角に変換
-                zairyu_shikaku = zairyu_shikaku.translate(str.maketrans('０１２３４５６７８９', '0123456789'))
+                zairyu_shikaku = zairyu_shikaku.translate(DIGIT_TRANSLATION)
                 ki_manryo = row.get('既満了日数', None)
                 kyoka_date = row.get('許可年月日')
                 manryo_date = row.get(expiration_col)
@@ -576,6 +627,8 @@ class ResidenceStatusManager:
         try:
             # 日付列から時間情報を削除（日付のみにする）
             date_columns = ['許可年月日', '満了年月日', '期限日1', '期限日2', '期限日3', '生年月日']
+            if '満了年月日までの残り日数' in expiring.columns:
+                expiring = expiring.drop(columns=['満了年月日までの残り日数'])
             for col in date_columns:
                 if col in expiring.columns:
                     expiring[col] = expiring[col].apply(

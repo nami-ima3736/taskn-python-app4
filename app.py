@@ -16,6 +16,8 @@ app.config['SECRET_KEY'] = 'your-secret-key-here'
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
+DIGIT_TRANSLATION = str.maketrans('０１２３４５６７８９', '0123456789')
+
 # アップロードフォルダを作成
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
@@ -174,6 +176,29 @@ def get_data():
         
         # 既満了日数を取得
         ki_manryo_days = row.get('既満了日数', None)
+        if pd.isna(ki_manryo_days) or ki_manryo_days == '':
+            ki_manryo_form_value = ''
+        elif isinstance(ki_manryo_days, float) and ki_manryo_days.is_integer():
+            ki_manryo_form_value = str(int(ki_manryo_days))
+        else:
+            ki_manryo_form_value = str(ki_manryo_days)
+
+        # 特定技能1号の在留期限上限（S列）
+        skill1_limit_source = row.get('特技1号在留期限')
+        skill1_limit_days = parse_threshold_value(skill1_limit_source, default=1825)
+
+        if pd.isna(skill1_limit_source):
+            skill1_limit_form_value = ''
+        elif isinstance(skill1_limit_source, str):
+            stripped = skill1_limit_source.strip()
+            skill1_limit_form_value = stripped
+        elif isinstance(skill1_limit_source, float) and skill1_limit_source.is_integer():
+            skill1_limit_form_value = str(int(skill1_limit_source))
+        else:
+            skill1_limit_form_value = str(skill1_limit_source)
+
+        if isinstance(skill1_limit_form_value, str) and skill1_limit_form_value.strip() == '':
+            skill1_limit_form_value = ''
         
         # 満了日数の表示を決定
         manryo_days_display = '-'
@@ -220,6 +245,7 @@ def get_data():
             '満了年月日': format_date(row.get('満了年月日')),
             '満了日数': manryo_days_display,
             '満了日数_値': manryo_days_value,
+            '既満了日数_編集値': ki_manryo_form_value,
             '満了年月日までの日数': days_to_expiration,
             '期限日1': format_date(row.get('期限日1')),
             '期限日1_状態': deadline1_status,
@@ -235,6 +261,8 @@ def get_data():
             '期限レベル2_上限': thresholds['level2_max'],
             '期限レベル3_上限': thresholds['level3_max'],
             '期限レベル分類': deadline_level,
+            '特技1号在留期限': skill1_limit_days,
+            '特技1号在留期限_編集値': skill1_limit_form_value,
         }
         data_list.append(data_item)
     
@@ -305,7 +333,8 @@ def get_summary():
         
         # 特定技能1号期限超過を計算
         manryo_days = row.get('満了日数')
-        if not pd.isna(manryo_days) and (manryo_days + 184) > 1825:
+        skill1_limit_days = parse_threshold_value(row.get('特技1号在留期限'), default=1825)
+        if not pd.isna(manryo_days) and skill1_limit_days is not None and (manryo_days + 184) > skill1_limit_days:
             skill1_limit_count += 1
     
     # 期限状況を計算
@@ -360,7 +389,8 @@ def upload_file():
             print("[DEBUG] データを処理中...")
             if not current_manager.process_data():
                 print("[ERROR] データの処理に失敗")
-                return jsonify({'error': 'データの処理に失敗しました'}), 400
+                error_message = current_manager.last_error or 'データの処理に失敗しました'
+                return jsonify({'error': error_message}), 400
             
             current_file = filepath
             last_export_info = {'timestamp': None, 'download_name': None}
@@ -439,7 +469,7 @@ def add_data():
         
         # 在留資格の正規化とカテゴリ判定
         zairyu_shikaku = data.get('在留資格', '')
-        zairyu_shikaku = zairyu_shikaku.translate(str.maketrans('０１２３４５６７８９', '0123456789'))
+        zairyu_shikaku = zairyu_shikaku.translate(DIGIT_TRANSLATION)
         is_skill1 = ('特定技能' in zairyu_shikaku) and ('1号' in zairyu_shikaku)
         is_skill2 = ('特定技能' in zairyu_shikaku) and ('2号' in zairyu_shikaku)
         is_gino = zairyu_shikaku.startswith('技能実習')
@@ -473,6 +503,28 @@ def add_data():
                     ki_manryo_days = int(ki_manryo_input)
                 except:
                     return jsonify({'error': '既満了日数は整数で入力してください。'}), 400
+
+        # 特技1号在留期限の検証・整形
+        skill1_limit_input = data.get('特技1号在留期限', '')
+        if isinstance(skill1_limit_input, str):
+            skill1_limit_input = skill1_limit_input.strip()
+            normalized_limit_input = skill1_limit_input.translate(DIGIT_TRANSLATION)
+        else:
+            normalized_limit_input = skill1_limit_input
+
+        skill1_limit_value = None
+        if is_skill1:
+            if normalized_limit_input in ('', None):
+                return jsonify({'error': '特定技能1号では特技1号在留期限は必須です（0以上の数値）。'}), 400
+        if normalized_limit_input not in ('', None):
+            try:
+                skill1_limit_value = int(float(normalized_limit_input))
+            except:
+                return jsonify({'error': '特技1号在留期限は数値で入力してください。'}), 400
+            if skill1_limit_value < 0:
+                return jsonify({'error': '特技1号在留期限は0以上で入力してください。'}), 400
+        else:
+            skill1_limit_value = None
         
         # 設定期限を取得
         setting1 = int(data.get('設定期限1', 90))
@@ -516,6 +568,8 @@ def add_data():
             new_row['満了年月日'] = manryo_date
         if '既満了日数' in existing_columns:
             new_row['既満了日数'] = ki_manryo_days
+        if '特技1号在留期限' in existing_columns:
+            new_row['特技1号在留期限'] = skill1_limit_value
         # 満了日数はバックエンドで一括再計算するためここでは設定しない
         
         # 設定期限
@@ -593,7 +647,7 @@ def update_data(index):
         if '在留資格' in data:
             # 全角数字を半角に変換
             zairyu_shikaku = data['在留資格']
-            zairyu_shikaku = zairyu_shikaku.translate(str.maketrans('０１２３４５６７８９', '0123456789'))
+            zairyu_shikaku = zairyu_shikaku.translate(DIGIT_TRANSLATION)
             current_manager.df.at[index, '在留資格'] = zairyu_shikaku
         if '国籍' in data:
             current_manager.df.at[index, '国籍'] = data['国籍']
@@ -624,17 +678,16 @@ def update_data(index):
                     current_manager.df.at[index, '満了年月日'] = manryo_date.date()
             except:
                 pass
+        zairyu_shikaku_now = str(current_manager.df.at[index, '在留資格'])
+        zairyu_shikaku_now = zairyu_shikaku_now.translate(DIGIT_TRANSLATION)
+        is_skill1_now = ('特定技能' in zairyu_shikaku_now) and ('1号' in zairyu_shikaku_now)
+        is_skill2_now = ('特定技能' in zairyu_shikaku_now) and ('2号' in zairyu_shikaku_now)
+        is_gino_now = zairyu_shikaku_now.startswith('技能実習')
+
         if '既満了日数' in data:
             ki_manryo_input = data['既満了日数']
             if isinstance(ki_manryo_input, str):
                 ki_manryo_input = ki_manryo_input.strip()
-
-            # 在留資格に基づく検証
-            zairyu_shikaku_now = str(current_manager.df.at[index, '在留資格'])
-            zairyu_shikaku_now = zairyu_shikaku_now.translate(str.maketrans('０１２３４５６７８９', '0123456789'))
-            is_skill1_now = ('特定技能' in zairyu_shikaku_now) and ('1号' in zairyu_shikaku_now)
-            is_skill2_now = ('特定技能' in zairyu_shikaku_now) and ('2号' in zairyu_shikaku_now)
-            is_gino_now = zairyu_shikaku_now.startswith('技能実習')
 
             if is_skill1_now:
                 if ki_manryo_input == '' or ki_manryo_input is None:
@@ -658,6 +711,27 @@ def update_data(index):
                         current_manager.df.at[index, '既満了日数'] = int(ki_manryo_input)
                     except:
                         return jsonify({'error': '既満了日数は整数で入力してください。'}), 400
+        if '特技1号在留期限' in data:
+            skill1_input = data['特技1号在留期限']
+            if isinstance(skill1_input, str):
+                skill1_input = skill1_input.strip()
+                normalized_limit = skill1_input.translate(DIGIT_TRANSLATION)
+            else:
+                normalized_limit = skill1_input
+
+            if is_skill1_now:
+                if normalized_limit in ('', None):
+                    return jsonify({'error': '特定技能1号では特技1号在留期限は必須です（0以上の数値）。'}), 400
+            if normalized_limit in ('', None):
+                current_manager.df.at[index, '特技1号在留期限'] = None
+            else:
+                try:
+                    limit_val = int(float(normalized_limit))
+                except:
+                    return jsonify({'error': '特技1号在留期限は数値で入力してください。'}), 400
+                if limit_val < 0:
+                    return jsonify({'error': '特技1号在留期限は0以上で入力してください。'}), 400
+                current_manager.df.at[index, '特技1号在留期限'] = limit_val
         if '設定期限1' in data:
             current_manager.df.at[index, '設定期限1'] = int(data['設定期限1'])
         if '設定期限2' in data:

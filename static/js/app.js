@@ -9,6 +9,16 @@ let hasUnsavedChanges = false;
 let lastChangeTimestamp = null;
 let lastExportedAt = null;
 
+function normalizeDigits(value) {
+    if (value === null || value === undefined) {
+        return value;
+    }
+    if (typeof value !== 'string') {
+        return value;
+    }
+    return value.replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+}
+
 // 期生のフォーマット関数（数値のみの場合は「期」を追加）
 function formatKisei(kisei) {
     if (!kisei || kisei === '-') {
@@ -228,10 +238,14 @@ function filterData(filterType, event) {
         });
         updateStatus(`フィルター: 期限レベル3 (${filteredData.length}件)`);
     } else if (filterType === 'skill1_limit') {
-        // 特定技能1号期限超過（満了日数 + 184 > 1825）
+        // 特定技能1号期限超過（満了日数 + 184 > 特技1号在留期限）
         filteredData = allData.filter(row => {
             const days = row['満了日数_値'];
-            return days !== null && (days + 184) > 1825;
+            const limit = row['特技1号在留期限'];
+            if (days === null || limit === null || limit === undefined) {
+                return false;
+            }
+            return (days + 184) > limit;
         });
         updateStatus(`フィルター: 特定技能1号期限超過 (${filteredData.length}件)`);
     }
@@ -405,6 +419,7 @@ function showAddModal() {
     document.getElementById('edit許可年月日').value = '';
     document.getElementById('edit満了年月日').value = '';
     document.getElementById('edit既満了日数').value = '';  // 空にする（特定技能1号以外は不要）
+    document.getElementById('edit特技1号在留期限').value = '';
     document.getElementById('edit設定期限1').value = '90';
     document.getElementById('edit設定期限2').value = '60';
     document.getElementById('edit設定期限3').value = '30';
@@ -447,6 +462,10 @@ async function showEditModal(index) {
     if (birthDate && birthDate !== '-') {
         document.getElementById('edit生年月日').value = convertToDateInput(birthDate);
     }
+    const kiManryoEditValue = row['既満了日数_編集値'];
+    document.getElementById('edit既満了日数').value = (kiManryoEditValue === undefined || kiManryoEditValue === null) ? '' : kiManryoEditValue;
+    const skill1LimitValue = row['特技1号在留期限_編集値'];
+    document.getElementById('edit特技1号在留期限').value = (skill1LimitValue === undefined || skill1LimitValue === null) ? '' : skill1LimitValue;
     
     document.getElementById('editModal').style.display = 'block';
 }
@@ -469,7 +488,10 @@ async function handleFormSubmit(event) {
     
     const index = document.getElementById('editIndex').value;
     const zairyuShikaku = document.getElementById('edit在留資格').value;
-    const kiManryoDays = document.getElementById('edit既満了日数').value;
+    const kiManryoInputRaw = document.getElementById('edit既満了日数').value;
+    const kiManryoDays = normalizeDigits((kiManryoInputRaw || '').trim());
+    const skill1LimitRaw = document.getElementById('edit特技1号在留期限').value;
+    const skill1Limit = normalizeDigits((skill1LimitRaw || '').trim());
     
     // 特定技能1号の場合、既満了日数の入力チェック
     if (zairyuShikaku.includes('特定技能') && (zairyuShikaku.includes('1号') || zairyuShikaku.includes('１号'))) {
@@ -478,10 +500,23 @@ async function handleFormSubmit(event) {
             document.getElementById('edit既満了日数').focus();
             return;
         }
-        const kiManryoNum = parseInt(kiManryoDays);
+        const kiManryoNum = parseInt(kiManryoDays, 10);
         if (isNaN(kiManryoNum) || kiManryoNum < 0) {
             alert('既満了日数は0以上の数値を入力してください。');
             document.getElementById('edit既満了日数').focus();
+            return;
+        }
+        if (skill1Limit === '' || skill1Limit === null) {
+            alert('特定技能1号の場合、特技1号在留期限の入力は必須です。\n0以上の数値を入力してください。');
+            document.getElementById('edit特技1号在留期限').focus();
+            return;
+        }
+    }
+    if (skill1Limit !== '' && skill1Limit !== null) {
+        const limitNum = parseInt(skill1Limit, 10);
+        if (isNaN(limitNum) || limitNum < 0) {
+            alert('特技1号在留期限は0以上の数値を入力してください。');
+            document.getElementById('edit特技1号在留期限').focus();
             return;
         }
     }
@@ -498,6 +533,7 @@ async function handleFormSubmit(event) {
         '許可年月日': document.getElementById('edit許可年月日').value,
         '満了年月日': document.getElementById('edit満了年月日').value,
         '既満了日数': kiManryoDays,
+        '特技1号在留期限': skill1Limit,
         '設定期限1': document.getElementById('edit設定期限1').value,
         '設定期限2': document.getElementById('edit設定期限2').value,
         '設定期限3': document.getElementById('edit設定期限3').value,
