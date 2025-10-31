@@ -4,9 +4,21 @@
 let calendarData = {};
 let currentYear = new Date().getFullYear();
 let currentMonth = new Date().getMonth() + 1; // 1-12
+let targetDay = null;
 
 // ページ読み込み時の初期化
 document.addEventListener('DOMContentLoaded', function() {
+    // URLパラメータから年月日を取得
+    const params = new URLSearchParams(window.location.search);
+    const paramYear = params.get('year');
+    const paramMonth = params.get('month');
+    const paramDay = params.get('day');
+    if (paramYear && paramMonth && paramDay) {
+        currentYear = parseInt(paramYear);
+        currentMonth = parseInt(paramMonth);
+        targetDay = parseInt(paramDay);
+    }
+
     // ファイル選択イベント
     document.getElementById('fileInput').addEventListener('change', handleFileUpload);
     
@@ -19,6 +31,20 @@ document.addEventListener('DOMContentLoaded', function() {
 function initializeCalendar() {
     updateMonthYearDisplay();
     loadCalendarData();
+}
+
+// ターゲット日を強調表示
+function highlightTargetDay(day) {
+    const cells = document.querySelectorAll('.calendar-cell');
+    cells.forEach(cell => {
+        const dateNumber = cell.querySelector('.date-number');
+        if (dateNumber && parseInt(dateNumber.textContent) === day) {
+            cell.classList.add('flash-target');
+            setTimeout(() => {
+                cell.classList.remove('flash-target');
+            }, 3000); // 3秒後にクラスを外す
+        }
+    });
 }
 
 // 月年表示を更新
@@ -41,6 +67,10 @@ async function loadCalendarData() {
         calendarData = result.calendar_data;
         
         generateCalendar();
+        // ターゲット日があれば強調表示
+        if (targetDay) {
+            highlightTargetDay(targetDay);
+        }
         updateStatus(`カレンダーを更新しました (${currentYear}年${currentMonth}月)`);
     } catch (error) {
         console.error('Error loading calendar data:', error);

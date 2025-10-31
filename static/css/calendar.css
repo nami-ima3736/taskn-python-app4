@@ -189,3 +189,14 @@
         padding: 0 10px;
     }
 }
+
+/* ターゲット日強調表示 */
+.flash-target {
+    animation: calendar-flash 1s ease-in-out 3;
+    border: 2px solid #FF5722 !important;
+}
+
+@keyframes calendar-flash {
+    0%, 100% { background-color: #FFF3CD; }
+    50% { background-color: #FFE082; }
+}

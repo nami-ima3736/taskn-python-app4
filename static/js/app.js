@@ -150,6 +150,22 @@ function updateTable() {
             } else {
                 td.textContent = cell.value;
             }
+
+            // 期限日セルにクリック可能クラスとデータ属性を付与
+            if (cell.isDeadline && cell.value && cell.value !== '-') {
+                td.classList.add('deadline-link');
+                const isoDate = convertToDateISO(cell.value);
+                if (isoDate) {
+                    td.dataset.date = isoDate;
+                    if (cell === cells[11]) { // 期限日1
+                        td.dataset.type = 'deadline1';
+                    } else if (cell === cells[12]) { // 期限日2
+                        td.dataset.type = 'deadline2';
+                    } else if (cell === cells[13]) { // 期限日3
+                        td.dataset.type = 'deadline3';
+                    }
+                }
+            }
             
             tr.appendChild(td);
         });
@@ -174,6 +190,9 @@ function updateTable() {
         
         tbody.appendChild(tr);
     });
+
+    // 期限日セルクリックイベントの付与
+    attachDeadlineClickHandlers();
 }
 
 // 状態テキストを取得
@@ -475,6 +494,28 @@ function convertToDateInput(dateStr) {
     if (!dateStr || dateStr === '-') return '';
     // YYYY/MM/DD形式をYYYY-MM-DD形式に変換
     return dateStr.replace(/\//g, '-');
+}
+
+// 日付をYYYY-MM-DD形式に変換（期限日セル用）
+function convertToDateISO(dateStr) {
+    if (!dateStr || dateStr === '-') return null;
+    // YYYY/MM/DD形式をYYYY-MM-DD形式に変換
+    return dateStr.replace(/\//g, '-');
+}
+
+// 期限日セルクリックイベントの付与
+function attachDeadlineClickHandlers() {
+    document.querySelectorAll('.deadline-link').forEach(td => {
+        td.addEventListener('click', event => {
+            const date = event.currentTarget.dataset.date;
+            if (date) {
+                // YYYY-MM-DD から年月日を分解
+                const [year, month, day] = date.split('-').map(Number);
+                // カレンダーへ遷移
+                window.location.href = `/calendar?year=${year}&month=${month}&day=${day}`;
+            }
+        });
+    });
 }
 
 // モーダルを閉じる
